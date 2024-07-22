@@ -5,10 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 from typing import Optional
-
 from torch import nn, Tensor
 from torchtune.modules.kv_cache import KVCache
-
+try:
+    import flashattn_hopper_cuda
+    from torchtune.modules.flash_attention import flash_attn_func
+    # disable the flashattn_hopper_cuda_installed flag for now
+    raise ImportError
+    flashattn_hopper_cuda_installed = True
+    print("Using Flash Attention on Hopper")
+except ImportError:
+    flashattn_hopper_cuda_installed = False
 
 class CausalSelfAttention(nn.Module):
     """Multi-headed grouped query self-attention (GQA) layer introduced
@@ -202,9 +209,10 @@ class CausalSelfAttention(nn.Module):
         k = self.pos_embeddings(k, input_pos=input_pos)
 
         # [b, n_h, s, h_d]
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
+        if mask is not None or not flashattn_hopper_cuda_installed:
+            q = q.transpose(1, 2)
+            k = k.transpose(1, 2)
+            v = v.transpose(1, 2)
 
         # Update key-value cache
         if self.kv_cache is not None:
@@ -215,15 +223,18 @@ class CausalSelfAttention(nn.Module):
             mask = mask[:, None, :, :]
 
         # Flash attention from https://pytorch.org/blog/accelerating-large-language-models/
-        output = nn.functional.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            attn_mask=mask,
-            dropout_p=self.attn_dropout,
-            is_causal=self.kv_cache is None and mask is None,
-        )
-
+        if mask is not None or not flashattn_hopper_cuda_installed:
+            output = nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=mask,
+                dropout_p=self.attn_dropout,
+                is_causal=self.kv_cache is None and mask is None,
+            )
+        else:
+            if flashattn_hopper_cuda_installed:
+                output, _ = flash_attn_func(q, k, v, causal=self.kv_cache is None and mask is None)
         # reshape the output to be the same shape as the input
         output = output.transpose(1, 2).contiguous().view(bsz, seq_len, -1)
         return self.output_proj(output)

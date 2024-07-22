@@ -214,6 +214,7 @@ class FullModelTorchTuneCheckpointer(_CheckpointerInterface):
         self,
         state_dict: Dict[str, Any],
         epoch: int,
+        global_step: Optional[int] = None,
         intermediate_checkpoint: bool = False,
     ) -> None:
         """
@@ -244,9 +245,14 @@ class FullModelTorchTuneCheckpointer(_CheckpointerInterface):
         self._output_dir.mkdir(exist_ok=True)
 
         # Output file is always a .pt file with the epoch number in the name
-        checkpoint_file = Path.joinpath(
-            self._output_dir, f"torchtune_model_{epoch}"
+        if global_step:
+            checkpoint_file = Path.joinpath(
+            self._output_dir, f"torchtune_model_{epoch}_{global_step}"
         ).with_suffix(".pt")
+        else:
+            checkpoint_file = Path.joinpath(
+                self._output_dir, f"torchtune_model_{epoch}"
+            ).with_suffix(".pt")
         torch.save(state_dict[utils.MODEL_KEY], checkpoint_file)
         logger.info(
             "Model checkpoint of size "
@@ -448,6 +454,7 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
         self,
         state_dict: Dict[str, Any],
         epoch: int,
+        global_step: Optional[int] = None,
         intermediate_checkpoint: bool = False,
     ) -> None:
         """
@@ -497,13 +504,13 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
         for cpt_idx, model_state_dict in split_state_dicts.items():
             if not self._safe_serialization:
                 output_path = Path.joinpath(
-                    self._output_dir, f"hf_model_{cpt_idx}_{epoch}"
+                    self._output_dir, f"hf_model_{cpt_idx}_{epoch}{'_'+str(global_step) if global_step else ''}"
                 ).with_suffix(".pt")
                 torch.save(model_state_dict, output_path)
             else:
                 output_path = Path.joinpath(
                     self._output_dir,
-                    f"model-0{cpt_idx}-of-0{list(split_state_dicts.keys())[-1]}_{epoch}",
+                    f"model-0{cpt_idx}-of-0{list(split_state_dicts.keys())[-1]}_{epoch}{f'_{global_step}' if global_step else ''}",
                 ).with_suffix(".safetensors")
                 save_file(model_state_dict, output_path, metadata={"format": "pt"})
             logger.info(

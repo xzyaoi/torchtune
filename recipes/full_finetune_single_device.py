@@ -108,7 +108,8 @@ class FullFinetuneRecipeSingleDevice(FTRecipeInterface):
         self._output_dir = cfg.output_dir
         self._log_every_n_steps = cfg.get("log_every_n_steps", 1)
         self._log_peak_memory_stats = cfg.get("log_peak_memory_stats", False)
-
+        # checkpointing attributes
+        self._checkpoint_every_n_steps = cfg.get("checkpoint_every_n_steps", -1)
         # Training cfg
         self._resume_from_checkpoint = cfg.resume_from_checkpoint
         self._gradient_accumulation_steps = cfg.gradient_accumulation_steps
@@ -397,6 +398,19 @@ class FullFinetuneRecipeSingleDevice(FTRecipeInterface):
             intermediate_checkpoint=(epoch + 1 < self.total_epochs),
         )
 
+    def save_intermediate_checkpoint(self, epoch: int, global_step: int, model_only: bool) -> None:
+        if model_only:
+            ckpt_dict = {utils.MODEL_KEY: self._model.state_dict()}
+            self._checkpointer.save_checkpoint(
+                ckpt_dict,
+                epoch=epoch,
+                global_step=global_step,
+                intermediate_checkpoint=True,
+            )
+        else:
+            # todo(xiaozhe): support intermediate checkpoint with optimizer states
+            raise NotImplementedError("Intermediate checkpoints with optimizer states are not supported yet.")
+
     def train(self) -> None:
         """
         The core training loop. Supports training on subsets of the dataset using the
@@ -470,7 +484,13 @@ class FullFinetuneRecipeSingleDevice(FTRecipeInterface):
                     pbar.set_description(
                         f"{curr_epoch+1}|{self.global_step}|Loss: {loss_to_log}"
                     )
-
+                    # checkpoint
+                    if self._checkpoint_every_n_steps > -1 and self.global_step % self._checkpoint_every_n_steps == 0:
+                        self.save_intermediate_checkpoint(
+                            epoch=curr_epoch,
+                            global_step=self.global_step,
+                            model_only=True,
+                        )
                     # Log per-step metrics
                     if self.global_step % self._log_every_n_steps == 0:
                         time_per_step = time.perf_counter() - t0
