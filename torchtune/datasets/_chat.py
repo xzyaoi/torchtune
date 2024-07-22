@@ -81,7 +81,10 @@ class ChatDataset(Dataset):
             )
 
         self._tokenizer = tokenizer
-        self._data = load_dataset(source, **load_dataset_kwargs)
+        if source.endswith(".jsonl"):
+            self._data = load_dataset("json", data_files=source, **load_dataset_kwargs)['train']
+        else:
+            self._data = load_dataset(source, **load_dataset_kwargs)
         self._convert_to_messages = convert_to_messages
         self.chat_format = chat_format
         self.max_seq_len = max_seq_len
