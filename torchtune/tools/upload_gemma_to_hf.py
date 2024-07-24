@@ -70,7 +70,6 @@ def upload_ft_gemma_to_hf(args):
                 with open(f"{args.ckpt_path}/hf_model_{shard:04d}_{epoch}.pt", "rb") as f:
                     data = torch.load(f)
                     loaded.update(data)
-            loaded = {k.replace("model.", ""): v for k, v in loaded.items()}
             model.load_state_dict(loaded, strict=True, assign=True)
             config.push_to_hub(
                 repo_id=args.hf_repo, 
