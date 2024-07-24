@@ -16,11 +16,8 @@ from safetensors.torch import save_file
 from torchtune import utils
 
 from torchtune.models import convert_weights
-from torchtune.models.mistral import (
-    mistral_reward_hf_to_tune,
-    mistral_reward_tune_to_hf,
-)
 from torchtune.models.phi3 import phi3_hf_to_tune, phi3_tune_to_hf
+from torchtune.modules.rlhf.utils import reward_hf_to_tune, reward_tune_to_hf
 from torchtune.utils._checkpointing._checkpointer_utils import (
     get_path,
     ModelType,
@@ -216,6 +213,7 @@ class FullModelTorchTuneCheckpointer(_CheckpointerInterface):
         epoch: int,
         global_step: Optional[int] = None,
         intermediate_checkpoint: bool = False,
+        adapter_only: bool = False,
     ) -> None:
         """
         Save torchtune checkpoint to file. If ``intermediate_checkpoint`` is True, an additional
@@ -241,24 +239,26 @@ class FullModelTorchTuneCheckpointer(_CheckpointerInterface):
                 we're not overwriting intermediate checkpoint files
             intermediate_checkpoint (bool): If True, save an additional checkpoint file with the
                 recipe state
+            adapter_only (bool): If True, only save the adapter weights. Default is False
         """
         self._output_dir.mkdir(exist_ok=True)
 
         # Output file is always a .pt file with the epoch number in the name
-        if global_step:
-            checkpoint_file = Path.joinpath(
-            self._output_dir, f"torchtune_model_{epoch}_{global_step}"
-        ).with_suffix(".pt")
-        else:
-            checkpoint_file = Path.joinpath(
-                self._output_dir, f"torchtune_model_{epoch}"
+        if not adapter_only:
+            if global_step:
+                checkpoint_file = Path.joinpath(
+                self._output_dir, f"torchtune_model_{epoch}_{global_step}"
             ).with_suffix(".pt")
-        torch.save(state_dict[utils.MODEL_KEY], checkpoint_file)
-        logger.info(
-            "Model checkpoint of size "
-            f"{os.path.getsize(checkpoint_file) / 1000**3:.2f} GB "
-            f"saved to {checkpoint_file}"
-        )
+            else:
+                checkpoint_file = Path.joinpath(
+                    self._output_dir, f"torchtune_model_{epoch}"
+                ).with_suffix(".pt")
+            torch.save(state_dict[utils.MODEL_KEY], checkpoint_file)
+            logger.info(
+                "Model checkpoint of size "
+                f"{os.path.getsize(checkpoint_file) / 1000**3:.2f} GB "
+                f"saved to {checkpoint_file}"
+            )
 
         if utils.ADAPTER_KEY in state_dict:
             output_path = Path.joinpath(
@@ -269,6 +269,10 @@ class FullModelTorchTuneCheckpointer(_CheckpointerInterface):
                 "Adapter checkpoint of size "
                 f"{os.path.getsize(output_path) / 1000**3:.2f} GB "
                 f"saved to {output_path}"
+            )
+        elif adapter_only:
+            raise ValueError(
+                "Adapter checkpoint not found in state_dict. Please ensure that the state_dict contains adapter weights."
             )
 
         # If the recipe state needs to be output, first remove the model state dict
@@ -425,8 +429,8 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
                 "Note that conversion of adapter weights into PEFT format is not supported."
             )
             converted_state_dict[utils.MODEL_KEY] = phi3_hf_to_tune(merged_state_dict)
-        elif self._model_type == ModelType.MISTRAL_REWARD:
-            converted_state_dict[utils.MODEL_KEY] = mistral_reward_hf_to_tune(
+        elif self._model_type == ModelType.REWARD:
+            converted_state_dict[utils.MODEL_KEY] = reward_hf_to_tune(
                 merged_state_dict,
                 num_heads=self._config["num_attention_heads"],
                 num_kv_heads=self._config["num_key_value_heads"],
@@ -456,6 +460,7 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
         epoch: int,
         global_step: Optional[int] = None,
         intermediate_checkpoint: bool = False,
+        adapter_only: bool = False,
     ) -> None:
         """
         Save HF checkpoint to file. If ``intermediate_checkpoint`` is True, an additional
@@ -470,49 +475,53 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
             epoch (int): Epoch number. Used to create the checkpoint file name
             intermediate_checkpoint (bool): If True, an additional checkpoint files for recipe state
                 and (if applicable) adapter weights are created. Default is False
+            adapter_only (bool): If True, only save the adapter weights. Default is False
         """
         self._output_dir.mkdir(exist_ok=True)
 
         # convert the state_dict back to hf format; do this inplace
-        if self._model_type == ModelType.PHI3_MINI:
-            state_dict[utils.MODEL_KEY] = phi3_tune_to_hf(state_dict[utils.MODEL_KEY])
-        elif self._model_type == ModelType.MISTRAL_REWARD:
-            state_dict[utils.MODEL_KEY] = mistral_reward_tune_to_hf(
-                state_dict[utils.MODEL_KEY],
-                num_heads=self._config["num_attention_heads"],
-                num_kv_heads=self._config["num_key_value_heads"],
-                dim=self._config["hidden_size"],
-            )
-        else:
-            state_dict[utils.MODEL_KEY] = convert_weights.tune_to_hf(
-                state_dict[utils.MODEL_KEY],
-                num_heads=self._config["num_attention_heads"],
-                num_kv_heads=self._config["num_key_value_heads"],
-                dim=self._config["hidden_size"],
-                head_dim=self._config.get("head_dim", None),
-            )
-
-        # split the state_dict into separate dicts, one for each output checkpoint file
-        split_state_dicts: Dict[str, Dict[str, torch.Tensor]] = {}
-        for key, weight in state_dict[utils.MODEL_KEY].items():
-            cpt_idx = self._weight_map[key]
-            if cpt_idx not in split_state_dicts:
-                split_state_dicts[cpt_idx] = {}
-            split_state_dicts[cpt_idx].update({key: weight})
-
-        # write the partitioned state dicts to the right checkpoint file
-        for cpt_idx, model_state_dict in split_state_dicts.items():
-            if not self._safe_serialization:
-                output_path = Path.joinpath(
-                    self._output_dir, f"hf_model_{cpt_idx}_{epoch}{'_'+str(global_step) if global_step else ''}"
-                ).with_suffix(".pt")
-                torch.save(model_state_dict, output_path)
+        if not adapter_only:
+            if self._model_type == ModelType.PHI3_MINI:
+                state_dict[utils.MODEL_KEY] = phi3_tune_to_hf(
+                    state_dict[utils.MODEL_KEY]
+                )
+            elif self._model_type == ModelType.REWARD:
+                state_dict[utils.MODEL_KEY] = reward_tune_to_hf(
+                    state_dict[utils.MODEL_KEY],
+                    num_heads=self._config["num_attention_heads"],
+                    num_kv_heads=self._config["num_key_value_heads"],
+                    dim=self._config["hidden_size"],
+                )
             else:
-                output_path = Path.joinpath(
-                    self._output_dir,
-                    f"model-0{cpt_idx}-of-0{list(split_state_dicts.keys())[-1]}_{epoch}{f'_{global_step}' if global_step else ''}",
-                ).with_suffix(".safetensors")
-                save_file(model_state_dict, output_path, metadata={"format": "pt"})
+                state_dict[utils.MODEL_KEY] = convert_weights.tune_to_hf(
+                    state_dict[utils.MODEL_KEY],
+                    num_heads=self._config["num_attention_heads"],
+                    num_kv_heads=self._config["num_key_value_heads"],
+                    dim=self._config["hidden_size"],
+                    head_dim=self._config.get("head_dim", None),
+                )
+
+            # split the state_dict into separate dicts, one for each output checkpoint file
+            split_state_dicts: Dict[str, Dict[str, torch.Tensor]] = {}
+            for key, weight in state_dict[utils.MODEL_KEY].items():
+                cpt_idx = self._weight_map[key]
+                if cpt_idx not in split_state_dicts:
+                    split_state_dicts[cpt_idx] = {}
+                split_state_dicts[cpt_idx].update({key: weight})
+
+            # write the partitioned state dicts to the right checkpoint file
+            for cpt_idx, model_state_dict in split_state_dicts.items():
+                if not self._safe_serialization:
+                    output_path = Path.joinpath(
+                        self._output_dir, f"hf_model_{cpt_idx}_{epoch}{'_'+str(global_step) if global_step else ''}"
+                    ).with_suffix(".pt")
+                    torch.save(model_state_dict, output_path)
+                else:
+                    output_path = Path.joinpath(
+                        self._output_dir,
+                        f"model-0{cpt_idx}-of-0{list(split_state_dicts.keys())[-1]}_{epoch}{f'_{global_step}' if global_step else ''}",
+                    ).with_suffix(".safetensors")
+                    save_file(model_state_dict, output_path, metadata={"format": "pt"})
             logger.info(
                 "Model checkpoint of size "
                 f"{os.path.getsize(output_path) / 1000**3:.2f} GB "
@@ -555,6 +564,10 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
                     f"{os.path.getsize(output_path) / 1000**3:.2f} GB "
                     f"saved to {peft_output_path}"
                 )
+        elif adapter_only:
+            raise ValueError(
+                "Adapter checkpoint not found in state_dict. Please ensure that the state_dict contains adapter weights."
+            )
 
         if utils.ADAPTER_CONFIG in state_dict:
             if self._model_type == ModelType.PHI3_MINI:
@@ -677,6 +690,7 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
         state_dict: Dict[str, Any],
         epoch: int,
         intermediate_checkpoint: bool = False,
+        adapter_only: bool = False,
     ) -> None:
         """
         Save Meta checkpoint to file. If ``intermediate_checkpoint`` is True, an additional
@@ -688,21 +702,24 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
             epoch (int): Epoch number. Used to create the checkpoint file name
             intermediate_checkpoint (bool): If True, an additional checkpoint files for recipe state
                 and (if applicable) adapter weights are created. Default is False
+            adapter_only (bool): If True, only save the adapter weights. Default is False
         """
         self._output_dir.mkdir(exist_ok=True)
-        model_state_dict = state_dict[utils.MODEL_KEY]
-        state_dict[utils.MODEL_KEY] = convert_weights.tune_to_meta(model_state_dict)
 
-        # Output file is always a .pt file with the epoch number in the name
-        checkpoint_file = Path.joinpath(
-            self._output_dir, f"meta_model_{epoch}"
-        ).with_suffix(".pt")
-        torch.save(state_dict[utils.MODEL_KEY], checkpoint_file)
-        logger.info(
-            "Model checkpoint of size "
-            f"{os.path.getsize(checkpoint_file) / 1000**3:.2f} GB "
-            f"saved to {checkpoint_file}"
-        )
+        if not adapter_only:
+            model_state_dict = state_dict[utils.MODEL_KEY]
+            state_dict[utils.MODEL_KEY] = convert_weights.tune_to_meta(model_state_dict)
+
+            # Output file is always a .pt file with the epoch number in the name
+            checkpoint_file = Path.joinpath(
+                self._output_dir, f"meta_model_{epoch}"
+            ).with_suffix(".pt")
+            torch.save(state_dict[utils.MODEL_KEY], checkpoint_file)
+            logger.info(
+                "Model checkpoint of size "
+                f"{os.path.getsize(checkpoint_file) / 1000**3:.2f} GB "
+                f"saved to {checkpoint_file}"
+            )
 
         if utils.ADAPTER_KEY in state_dict:
             output_path = Path.joinpath(
@@ -713,6 +730,10 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
                 "Adapter checkpoint of size "
                 f"{os.path.getsize(output_path) / 1000**3:.2f} GB "
                 f"saved to {output_path}"
+            )
+        elif adapter_only:
+            raise ValueError(
+                "Adapter checkpoint not found in state_dict. Please ensure that the state_dict contains adapter weights."
             )
 
         # If the recipe state needs to be output, first remove the model state dict
