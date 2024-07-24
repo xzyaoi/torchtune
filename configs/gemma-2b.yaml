@@ -5,7 +5,7 @@ tokenizer:
 # Dataset
 dataset:
   _component_: torchtune.datasets.chat_dataset
-  source: .local/datasets/ni_train_0.1.jsonl
+  source: /mnt/scratch/xiayao/projects/fmsys/mixtera/.cache/datasets/prepared/ni_train_mix1_0.1.jsonl
   conversation_style: "openai"
   max_seq_len: 2048
   chat_format: torchtune.data.GemmaFormat
@@ -24,7 +24,7 @@ checkpointer:
     "model-00002-of-00002.safetensors"
   ]
   recipe_checkpoint: null
-  output_dir: .local/ckpts/tuned/gemma-2b-mixtera-v1/
+  output_dir: .local/ckpts/tuned/gemma-2b-mixtera-v2/
   model_type: GEMMA
 resume_from_checkpoint: False
 
@@ -58,7 +58,7 @@ dtype: bf16
 metric_logger:
   _component_: torchtune.utils.metric_logging.WandBLogger
   project: mixtera
-output_dir: .local/ckpts/tuned/gemma-2b-mixtera-v1/
+output_dir: .local/ckpts/tuned/gemma-2b-mixtera-v2/
 log_every_n_steps: 1
 log_peak_memory_stats: False
 checkpoint_every_n_steps: 1000

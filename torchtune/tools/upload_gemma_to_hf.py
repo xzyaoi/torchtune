@@ -20,11 +20,11 @@ def upload_ft_gemma_to_hf(args):
         shards.add(shard)
         epoch = int(ckpt.split("_")[1])
         epochs.add(epoch)
-        has_final_ckpts[epoch] = False
         if len(ckpt.split("_")) > 2:
             if epoch not in global_steps:
                 global_steps[epoch] = set()
             global_steps[epoch].add(int(ckpt.split("_")[2]))
+        else:
             has_final_ckpts[epoch] = True
     print(f"Shards: {shards}, Epochs: {epochs}, Global Steps: {global_steps}, Has final ckpts: {has_final_ckpts}")
     

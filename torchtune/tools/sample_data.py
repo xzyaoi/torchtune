@@ -15,7 +15,6 @@ def sample_training_data(args):
         for d in sampled_data:
             f.write(json.dumps(d) + "\n")
 
-
 if __name__=="__main__":
     import argparse
     parser = argparse.ArgumentParser()
