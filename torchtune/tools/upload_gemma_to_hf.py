@@ -1,7 +1,7 @@
 import os
 import torch
 from accelerate import init_empty_weights
-from transformers import AutoTokenizer, AutoModel, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
 
 def upload_ft_gemma_to_hf(args):
@@ -13,17 +13,20 @@ def upload_ft_gemma_to_hf(args):
     shards = set()
     epochs = set()
     global_steps = {}
+    has_final_ckpts = {}
     for ckpt in checkpoints:
         ckpt = ckpt.replace(".pt", "")
         shard = int(ckpt.split("_")[0])
         shards.add(shard)
         epoch = int(ckpt.split("_")[1])
         epochs.add(epoch)
+        has_final_ckpts[epoch] = False
         if len(ckpt.split("_")) > 2:
             if epoch not in global_steps:
                 global_steps[epoch] = set()
             global_steps[epoch].add(int(ckpt.split("_")[2]))
-    print(f"Shards: {shards}, Epochs: {epochs}, Global Steps: {global_steps}")
+            has_final_ckpts[epoch] = True
+    print(f"Shards: {shards}, Epochs: {epochs}, Global Steps: {global_steps}, Has final ckpts: {has_final_ckpts}")
     
     for epoch in epochs:
         print(f"Uploading epoch {epoch}")
@@ -31,12 +34,13 @@ def upload_ft_gemma_to_hf(args):
             print(f"Uploading global step {global_step}")
             loaded = {}
             with init_empty_weights():
-                model = AutoModel.from_config(config)
+                model = AutoModelForCausalLM.from_config(config)
+                # https://github.com/vllm-project/vllm/issues/3323
+                del model.lm_head
             for shard in shards:
                 with open(f"{args.ckpt_path}/hf_model_{shard:04d}_{epoch}_{global_step}.pt", "rb") as f:
                     data = torch.load(f)
                     loaded.update(data)
-            loaded = {k.replace("model.", ""): v for k, v in loaded.items()}
             model.load_state_dict(loaded, strict=True, assign=True)
             config.push_to_hub(
                 repo_id=args.hf_repo, 
@@ -56,34 +60,36 @@ def upload_ft_gemma_to_hf(args):
                 revision=f"epoch_{epoch}-step_{global_step}",
                 private=True,
             )
-        print(f"Uploading final step in epoch {epoch}")
-        loaded = {}
-        with init_empty_weights():
-            model = AutoModel.from_config(config)
-        for shard in shards:
-            with open(f"{args.ckpt_path}/hf_model_{shard:04d}_{epoch}.pt", "rb") as f:
-                data = torch.load(f)
-                loaded.update(data)
-        loaded = {k.replace("model.", ""): v for k, v in loaded.items()}
-        model.load_state_dict(loaded, strict=True, assign=True)
-        config.push_to_hub(
-            repo_id=args.hf_repo, 
-            commit_message=f"config: epoch={epoch};",
-            revision=f"epoch_{epoch}-final",
-            private=True,
-        )
-        tokenizer.push_to_hub(
-            repo_id=args.hf_repo, 
-            commit_message=f"tokenizer: epoch={epoch};",
-            revision=f"epoch_{epoch}-final",
-            private=True,
-        )
-        model.push_to_hub(
-            repo_id=args.hf_repo, 
-            commit_message=f"ckpt: epoch={epoch};",
-            revision=f"epoch_{epoch}-final",
-            private=True,
-        )
+        if has_final_ckpts[epoch]:
+            print(f"Uploading final step in epoch {epoch}")
+            loaded = {}
+            with init_empty_weights():
+                model = AutoModelForCausalLM.from_config(config)
+                del model.lm_head
+            for shard in shards:
+                with open(f"{args.ckpt_path}/hf_model_{shard:04d}_{epoch}.pt", "rb") as f:
+                    data = torch.load(f)
+                    loaded.update(data)
+            loaded = {k.replace("model.", ""): v for k, v in loaded.items()}
+            model.load_state_dict(loaded, strict=True, assign=True)
+            config.push_to_hub(
+                repo_id=args.hf_repo, 
+                commit_message=f"config: epoch={epoch};",
+                revision=f"epoch_{epoch}-final",
+                private=True,
+            )
+            tokenizer.push_to_hub(
+                repo_id=args.hf_repo, 
+                commit_message=f"tokenizer: epoch={epoch};",
+                revision=f"epoch_{epoch}-final",
+                private=True,
+            )
+            model.push_to_hub(
+                repo_id=args.hf_repo, 
+                commit_message=f"ckpt: epoch={epoch};",
+                revision=f"epoch_{epoch}-final",
+                private=True,
+            )
         print(f"Uploaded epoch {epoch}")
     
 if __name__=="__main__":

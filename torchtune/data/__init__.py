@@ -9,6 +9,7 @@ from torchtune.data._chat_formats import (
     ChatMLFormat,
     Llama2ChatFormat,
     MistralChatFormat,
+    GemmaFormat,
 )
 from torchtune.data._common import CROSS_ENTROPY_IGNORE_IDX
 from torchtune.data._converters import get_openai_messages, get_sharegpt_messages
@@ -32,6 +33,7 @@ __all__ = [
     "Llama2ChatFormat",
     "MistralChatFormat",
     "ChatMLFormat",
+    "GemmaFormat",
     "get_openai_messages",
     "get_sharegpt_messages",
     "truncate",

@@ -8,7 +8,7 @@ dataset:
   source: .local/datasets/ni_train_0.1.jsonl
   conversation_style: "openai"
   max_seq_len: 2048
-  chat_format: torchtune.data.ChatMLFormat
+  chat_format: torchtune.data.GemmaFormat
 seed: null
 shuffle: True
 

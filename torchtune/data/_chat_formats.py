@@ -236,3 +236,56 @@ class ChatMLFormat(ChatFormat):
                 ),
             )
         return formatted_dialogue
+
+class GemmaFormat(ChatFormat):
+    """
+    Google's `Chat Markup Language
+    <https://github.com/MicrosoftDocs/azure-docs/blob/772c14eeabfa0c0c561d5c2d34ef19341f528b7b/articles/ai-services/openai/how-to/chat-markup-language.md>`_
+    used by their chat models.
+
+    .. code-block:: text
+
+        <bos><start_of_turn>user
+        The user’s message goes here<end_of_turn>
+        <start_of_turn>model
+        The assistant’s response goes here<end_of_turn>
+
+    """
+
+    template = {
+        "user": ("<start_of_turn>user\n", "<end_of_turn>\n"),
+        "assistant": ("<start_of_turn>model\n", "<end_of_turn>"),
+    }
+
+    @classmethod
+    def format(
+        cls,
+        sample: List[Message],
+    ) -> List[Message]:
+        """
+        Format user and system messages with appropriate tags.
+
+        Args:
+            sample (List[Message]): a single conversation, structured as a list
+                of `Message` objects
+
+        Returns:
+            The formatted list of messages
+        """
+        formatted_dialogue = []
+        for message in sample:
+            content = (
+                [{"type": "text", "content": cls.template[message.role][0]}]
+                + message.content
+                + [{"type": "text", "content": cls.template[message.role][1]}]
+            )
+            formatted_dialogue.append(
+                Message(
+                    role=message.role,
+                    content=content,
+                    masked=message.masked,
+                    ipython=message.ipython,
+                    eot=message.eot,
+                ),
+            )
+        return formatted_dialogue
