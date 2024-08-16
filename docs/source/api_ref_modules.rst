@@ -35,6 +35,8 @@ model specific tokenizers.
 
     tokenizers.SentencePieceBaseTokenizer
     tokenizers.TikTokenBaseTokenizer
+    tokenizers.ModelTokenizer
+    tokenizers.BaseTokenizer
 
 Tokenizer Utilities
 -------------------
@@ -73,17 +75,6 @@ These are utilities that are common to and can be used by all modules.
 
    common_utils.reparametrize_as_dtype_state_dict_post_hook
 
-Loss
-------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-
-   loss.DPOLoss
-   loss.RSOLoss
-   loss.IPOLoss
-
 
 Vision Transforms
 ------------------
@@ -93,8 +84,37 @@ Functions used for preprocessing images.
    :toctree: generated/
    :nosignatures:
 
+    transforms.Transform
     transforms.get_canvas_best_fit
+    transforms.get_inscribed_size
     transforms.resize_with_pad
     transforms.tile_crop
     transforms.find_supported_resolutions
     transforms.VisionCrossAttentionMask
+
+Reinforcement Learning From Human Feedback (RLHF)
+--------------------------------------------------
+Components for RLHF algorithms like PPO.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+    rlhf.estimate_advantages
+    rlhf.get_rewards_ppo
+    rlhf.truncate_sequence_at_first_stop_token
+    rlhf.left_padded_collate
+    rlhf.padded_collate_dpo
+
+Losses
+^^^^^^
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   rlhf.loss.PPOLoss
+   rlhf.loss.DPOLoss
+   rlhf.loss.RSOLoss
+   rlhf.loss.IPOLoss
+   rlhf.loss.SimPOLoss
